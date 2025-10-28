@@ -4,6 +4,7 @@ import json
 import re
 import argparse
 import logging
+import difflib
 from typing import Optional, Tuple
 
 import numpy as np
@@ -86,7 +87,15 @@ def _country_to_iso3(country_name: str) -> str:
         raise ValueError(f"Could not resolve country name to ISO3: {country_name}")
 
 
-def _fetch_admin1_geojson(iso3: str) -> dict:
+def _fetch_admin1_geojson(iso3: str, admin_level: str = "ADM1", local_path: Optional[str] = None) -> dict:
+    if local_path and os.path.exists(local_path):
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            logger.info("Loaded boundaries from local file: %s", local_path)
+            return data
+        except Exception as e:
+            logger.warning("Failed to read local GeoJSON at %s: %s; falling back to remote.", local_path, e)
     cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "geoboundaries")
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, f"{iso3}_ADM1.geojson")
@@ -101,7 +110,7 @@ def _fetch_admin1_geojson(iso3: str) -> dict:
             logger.warning("Failed to read cached GeoJSON, will refetch: %s", cache_path)
 
     session = _requests_session()
-    api_url = f"https://www.geoboundaries.org/api/current/gbOpen/{iso3}/ADM1"
+    api_url = f"https://www.geoboundaries.org/api/current/gbOpen/{iso3}/{admin_level}"
     logger.info("Fetching boundaries metadata: %s", api_url)
     r = session.get(api_url, timeout=30)
     r.raise_for_status()
@@ -208,7 +217,8 @@ def _merge_with_geojson(df: pd.DataFrame, id_col: str, geojson: dict) -> Tuple[p
 
     # Normalize names in both datasets
     df = df.copy()
-    df["__norm_name"] = df[id_col].astype(str).map(_normalize_name)
+    if "__norm_name" not in df.columns:
+        df["__norm_name"] = df[id_col].astype(str).map(_normalize_name)
 
     for f in features:
         props = f.get("properties", {})
@@ -231,7 +241,16 @@ def _merge_with_geojson(df: pd.DataFrame, id_col: str, geojson: dict) -> Tuple[p
     return merged, geojson, bind_key, gj_name_key
 
 
-def analyze_needs(dataset_path: str, country_name: str, output_html_path: Optional[str] = None) -> str:
+def analyze_needs(
+    dataset_path: str,
+    country_name: str,
+    output_html_path: Optional[str] = None,
+    *,
+    admin_level: str = "ADM1",
+    admin_col: Optional[str] = None,
+    local_geojson: Optional[str] = None,
+    fixed_thresholds: Optional[Tuple[float, float, float]] = None,
+) -> str:
     """
     Analyze humanitarian need using unsupervised learning and render a province-level map.
 
@@ -256,7 +275,7 @@ def analyze_needs(dataset_path: str, country_name: str, output_html_path: Option
     if df.empty:
         raise ValueError("Dataset is empty.")
 
-    id_col = _detect_admin_column(df)
+    id_col = admin_col or _detect_admin_column(df)
     if not id_col:
         raise ValueError("Could not detect an admin-1 name column. Add a column like 'province' or 'admin1'.")
 
@@ -291,7 +310,42 @@ def analyze_needs(dataset_path: str, country_name: str, output_html_path: Option
 
     # Fetch boundaries
     iso3 = _country_to_iso3(country_name)
-    geojson = _fetch_admin1_geojson(iso3)
+    geojson = _fetch_admin1_geojson(iso3, admin_level=admin_level, local_path=local_geojson)
+
+    # Fuzzy name harmonization before merge when needed
+    try:
+        features = geojson.get("features", [])
+        # find a name key in geojson
+        name_key = None
+        for key in ["shapeName", "name", "NAME_1", "adm1_name"]:
+            if features and key in features[0].get("properties", {}):
+                name_key = key
+                break
+        if name_key:
+            geo_names = [
+                _normalize_name(f.get("properties", {}).get(name_key, ""))
+                for f in features
+            ]
+            # build normalization column to map
+            df_res = result_df.copy()
+            df_res["__norm_name"] = df_res[id_col].astype(str).map(_normalize_name)
+            mapped = []
+            for nm in df_res["__norm_name"].tolist():
+                if nm in geo_names:
+                    mapped.append(nm)
+                else:
+                    # closest match
+                    match = difflib.get_close_matches(nm, geo_names, n=1, cutoff=0.84)
+                    mapped.append(match[0] if match else nm)
+            # only set mapping if it improves coverage
+            before_cov = sum(n in geo_names for n in df_res["__norm_name"]) / max(len(df_res), 1)
+            after_cov = sum(n in geo_names for n in mapped) / max(len(mapped), 1)
+            if after_cov > before_cov:
+                result_df = result_df.copy()
+                result_df["__norm_name"] = mapped
+                logger.info("Applied fuzzy name harmonization: coverage %.1f%% -> %.1f%%", before_cov*100, after_cov*100)
+    except Exception as e:
+        logger.warning("Fuzzy harmonization skipped: %s", e)
 
     # Merge with geojson properties by normalized names
     merged, geojson, bind_key, gj_name_key = _merge_with_geojson(result_df, id_col, geojson)
@@ -349,7 +403,9 @@ def analyze_needs(dataset_path: str, country_name: str, output_html_path: Option
 
     # Discrete color scheme by quartiles
     values = np.array([v for v in value_by_key.values() if v is not None])
-    if values.size:
+    if fixed_thresholds is not None:
+        q25, q50, q75 = fixed_thresholds
+    elif values.size:
         q25, q50, q75 = np.quantile(values, [0.25, 0.5, 0.75])
     else:
         q25 = q50 = q75 = 0.0
