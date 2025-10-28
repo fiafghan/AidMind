@@ -1,20 +1,25 @@
 # AidMind
 
-**Unsupervised machine learning for humanitarian needs assessment and visualization**
+**Unsupervised machine learning for humanitarian needs assessment at ANY geographic level**
 
-AidMind is a production-ready Python tool that enables humanitarian data analysts to quickly identify provinces/regions with the highest need for aid using unsupervised machine learning. It automatically clusters geographic units, ranks them by need level, and generates interactive choropleth maps with discrete color-coded need levels.
+AidMind is a production-ready Python tool that enables humanitarian data analysts to quickly identify areas with the highest need for aid using unsupervised machine learning. Works with **provinces, districts, villages, refugee camps, neighborhoods, or any custom geographic units**. It automatically clusters geographic units, ranks them by need level, and generates interactive choropleth maps with discrete color-coded need levels.
+
+**Fully generalized**: Works with any CSV structure and any GeoJSON boundaries.
 
 ---
 
 ## Features
 
-- **Easy to use**: Single function call with dataset path and country name
-- **Flexible inputs**: Works with any numeric indicators (health, education, income, food security, water access, etc.)
+- **Works at ANY geographic level**: Provinces, districts, villages, refugee camps, neighborhoods, or any custom zones
+- **Completely generalized**: Works with ANY CSV structure and ANY column names
+- **Easy to use**: Single function call with dataset path
+- **Flexible inputs**: Works with any numeric indicators (any column names accepted)
+- **Custom boundaries**: Use your own GeoJSON for villages or custom units
 - **Automatic preprocessing**: Handles missing values, duplicates, and name variations
 - **Intelligent clustering**: Uses KMeans to identify need patterns across indicators
 - **Geographic visualization**: Generates interactive HTML maps with 4 discrete need levels (high, medium, low, lowest)
-- **Offline capable**: Cache boundaries locally or provide custom GeoJSON files
-- **International ready**: Works with any country supported by GeoBoundaries
+- **Online or offline**: Use GeoBoundaries or custom GeoJSON files
+- **International ready**: Works with any country, any admin level (ADM1, ADM2, ADM3, custom)
 - **CSV export**: Outputs structured data with need scores, ranks, and levels
 - **Professional logging**: Transparent processing with diagnostic information
 
@@ -53,35 +58,65 @@ pip install -e .
 
 ## Quick Start
 
-### Basic usage
+### Province-level (with GeoBoundaries)
 
 ```python
 from aidmind import analyze_needs
 
-# Generate need assessment map
-output_path = analyze_needs("my_data.csv", "Afghanistan")
-print(f"Map saved to: {output_path}")
+# Analyze provinces
+output = analyze_needs("provinces.csv", "Afghanistan", admin_level="ADM1")
+print(f"Map saved to: {output}")
 ```
 
-### With options
+### District-level (with GeoBoundaries)
 
 ```python
-output_path = analyze_needs(
-    dataset_path="humanitarian_indicators.csv",
-    country_name="Kenya",
-    admin_col="county",                           # Specify admin column name
-    admin_level="ADM1",                           # Or "ADM2" if available
-    local_geojson="kenya_boundaries.geojson",     # Use local boundaries
-    fixed_thresholds=(0.25, 0.50, 0.75),          # Fixed color thresholds
-    output_html_path="output/kenya_needs.html"    # Custom output path
+# Analyze districts
+output = analyze_needs(
+    "districts.csv",
+    "Afghanistan",
+    admin_level="ADM2",
+    admin_col="district"
+)
+```
+
+### Village-level (with custom boundaries)
+
+```python
+# Analyze villages using your own GeoJSON
+output = analyze_needs(
+    "villages.csv",
+    local_geojson="village_boundaries.geojson",
+    admin_col="village_name"
+)
+```
+
+### Any custom geographic unit
+
+```python
+# Works with refugee camps, neighborhoods, health zones, etc.
+output = analyze_needs(
+    "refugee_camps.csv",
+    local_geojson="camp_boundaries.geojson",
+    admin_col="camp_name",
+    fixed_thresholds=(0.25, 0.50, 0.75)  # Optional: fixed thresholds
 )
 ```
 
 ### Command line
 
 ```bash
-python -m aidmind my_data.csv "Afghanistan" --output results/map.html
+# Province-level
+python -m aidmind provinces.csv "Afghanistan" --admin-level ADM1
+
+# District-level
+python -m aidmind districts.csv "Kenya" --admin-level ADM2 --admin-col district
+
+# Village-level with custom boundaries
+python -m aidmind villages.csv --geojson villages.geojson --admin-col village_name
 ```
+
+**See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) for complete documentation with 10+ examples.**
 
 ---
 
@@ -89,15 +124,16 @@ python -m aidmind my_data.csv "Afghanistan" --output results/map.html
 
 ### Required
 
-- **One admin column**: Province/state/county names (e.g., `province`, `admin1`, `region`, `state`)
-- **At least one numeric indicator**: Any humanitarian metrics (e.g., `health_index`, `poverty_rate`, `food_security`)
+- **One geographic unit column**: Any column with location names (province, district, village, camp, zone, etc.)
+- **At least one numeric indicator**: Any metric columns with numeric values
 
 ### Supported formats
 
-- CSV files with UTF-8 encoding
-- Column names can be anything; the tool auto-detects admin names and uses all numeric columns
+- **CSV files** with UTF-8 encoding
+- **ANY column names**: Tool auto-detects geographic column and uses all numeric columns
+- **GeoJSON boundaries**: Either from GeoBoundaries or your own custom file
 
-### Example dataset structure
+### Example: Province-level
 
 ```csv
 province,health_index,education_index,income_index,food_security,water_access
@@ -106,9 +142,27 @@ Kandahar,0.45,0.40,0.50,0.35,0.44
 Herat,0.60,0.65,0.55,0.60,0.63
 ```
 
+### Example: Village-level
+
+```csv
+village_name,health_access,school_access,water_quality,food_availability
+Qala-e-Fatullah,0.30,0.25,0.40,0.35
+Deh-e-Bagh,0.45,0.40,0.55,0.50
+Karez-e-Mir,0.25,0.20,0.35,0.30
+```
+
+### Example: Refugee camps
+
+```csv
+camp_name,shelter,water,sanitation,food,health
+Camp Dadaab 1,0.40,0.35,0.30,0.45,0.50
+Camp Kakuma,0.55,0.50,0.45,0.60,0.65
+Camp Nyarugusu,0.30,0.25,0.20,0.35,0.40
+```
+
 ### Handling duplicates
 
-If you have multiple records per admin unit (e.g., `Kabul_1`, `Kabul_2`), the tool automatically:
+If you have multiple records per unit (e.g., `Kabul_1`, `Kabul_2`), the tool automatically:
 - Strips trailing numeric suffixes
 - Aggregates by averaging indicators
 
@@ -252,10 +306,10 @@ output = analyze_needs(
 ```python
 def analyze_needs(
     dataset_path: str,
-    country_name: str,
+    country_name: Optional[str] = None,
     output_html_path: Optional[str] = None,
     *,
-    admin_level: str = "ADM1",
+    admin_level: Optional[str] = None,
     admin_col: Optional[str] = None,
     local_geojson: Optional[str] = None,
     fixed_thresholds: Optional[Tuple[float, float, float]] = None,
@@ -263,12 +317,12 @@ def analyze_needs(
 ```
 
 **Parameters**:
-- `dataset_path` (str): Path to CSV file with indicators
-- `country_name` (str): Country name (e.g., "Afghanistan", "Kenya")
+- `dataset_path` (str): Path to CSV file with geographic units and indicators
+- `country_name` (str, optional): Country name (e.g., "Afghanistan", "Kenya"). Required only if using GeoBoundaries. Can be None if providing `local_geojson`
 - `output_html_path` (str, optional): Custom output path for HTML
-- `admin_level` (str): "ADM1" (default) or "ADM2"
-- `admin_col` (str, optional): Name of admin column (auto-detected if None)
-- `local_geojson` (str, optional): Path to local GeoJSON boundaries
+- `admin_level` (str, optional): Admin level ("ADM1", "ADM2", "ADM3", or any custom). Only used with GeoBoundaries
+- `admin_col` (str, optional): Name of geographic unit column (auto-detected if None)
+- `local_geojson` (str, optional): Path to local GeoJSON boundaries. Use this for villages or custom units
 - `fixed_thresholds` (tuple, optional): (q25, q50, q75) for color levels
 
 **Returns**:
@@ -276,7 +330,22 @@ def analyze_needs(
 
 **Raises**:
 - `FileNotFoundError`: If dataset or local_geojson not found
-- `ValueError`: If invalid inputs, empty dataset, or no numeric columns
+- `ValueError`: If invalid inputs, empty dataset, or both country_name and local_geojson missing
+
+**Examples**:
+```python
+# Province-level with GeoBoundaries
+analyze_needs("provinces.csv", "Afghanistan", admin_level="ADM1")
+
+# District-level with GeoBoundaries
+analyze_needs("districts.csv", "Kenya", admin_level="ADM2")
+
+# Village-level with custom boundaries
+analyze_needs("villages.csv", local_geojson="villages.geojson")
+
+# Custom zones
+analyze_needs("camps.csv", local_geojson="camps.geojson", admin_col="camp_name")
+```
 
 ---
 

@@ -243,45 +243,65 @@ def _merge_with_geojson(df: pd.DataFrame, id_col: str, geojson: dict) -> Tuple[p
 
 def analyze_needs(
     dataset_path: str,
-    country_name: str,
+    country_name: Optional[str] = None,
     output_html_path: Optional[str] = None,
     *,
-    admin_level: str = "ADM1",
+    admin_level: Optional[str] = None,
     admin_col: Optional[str] = None,
     local_geojson: Optional[str] = None,
     fixed_thresholds: Optional[Tuple[float, float, float]] = None,
 ) -> str:
     """
-    Analyze humanitarian need using unsupervised learning and render a province-level map.
+    Analyze humanitarian need using unsupervised learning and render a geographic map.
+    
+    Works with ANY administrative level (provinces, districts, villages, neighborhoods, custom zones)
+    and ANY CSV structure. Fully generalized for international humanitarian use.
 
     Parameters
     ----------
     dataset_path : str
-        Path to a CSV containing province-level indicators. Must include a province/admin1 name column.
-    country_name : str
-        Country name (e.g., "Afghanistan").
+        Path to a CSV with geographic units and indicators.
+    country_name : Optional[str]
+        Country name (e.g., "Afghanistan"). Required only if fetching boundaries from GeoBoundaries.
+        Can be None if you provide local_geojson.
     output_html_path : Optional[str]
-        Where to save the generated HTML. Defaults to AidMind/output/needs_map_<ISO3>.html
-    admin_level : str
-        Administrative level to use ("ADM1" or "ADM2"). Default: "ADM1".
+        Where to save the generated HTML. Defaults to output/needs_map.html
+    admin_level : Optional[str]
+        Administrative level ("ADM1", "ADM2", "ADM3", or any custom level).
+        Only used when fetching from GeoBoundaries. Can be None with local_geojson.
     admin_col : Optional[str]
-        Name of the admin column in your dataset. If None, auto-detects.
+        Name of the geographic unit column in your dataset. If None, auto-detects.
     local_geojson : Optional[str]
-        Path to local GeoJSON file for boundaries (enables offline mode).
+        Path to local GeoJSON file with boundaries. If provided, country_name and admin_level
+        become optional. Use this for villages, custom zones, or offline analysis.
     fixed_thresholds : Optional[Tuple[float, float, float]]
         Fixed thresholds (q25, q50, q75) for color levels. If None, uses quartiles.
 
     Returns
     -------
     str
-        The path to the generated HTML file.
+        Path to the generated HTML file.
 
     Raises
     ------
     FileNotFoundError
-        If dataset_path does not exist.
+        If dataset_path or local_geojson does not exist.
     ValueError
-        If dataset is empty, has no numeric columns, or country name is invalid.
+        If dataset is invalid or both country_name and local_geojson are missing.
+        
+    Examples
+    --------
+    # Province-level with GeoBoundaries
+    analyze_needs("provinces.csv", "Afghanistan", admin_level="ADM1")
+    
+    # District-level with GeoBoundaries
+    analyze_needs("districts.csv", "Kenya", admin_level="ADM2")
+    
+    # Village-level with custom boundaries
+    analyze_needs("villages.csv", local_geojson="villages.geojson")
+    
+    # Custom zones (refugee camps, neighborhoods, etc.)
+    analyze_needs("camps.csv", local_geojson="camp_boundaries.geojson", admin_col="camp_name")
     """
     # Validate inputs
     if not dataset_path:
@@ -291,15 +311,31 @@ def analyze_needs(
             f"Dataset not found: {dataset_path}\n"
             f"Please check the file path and ensure the file exists."
         )
-    if not country_name or not country_name.strip():
+    
+    # Check if we have either country_name OR local_geojson
+    if not country_name and not local_geojson:
         raise ValueError(
-            "country_name cannot be empty.\n"
-            "Example: 'Afghanistan', 'Kenya', 'Colombia'"
+            "Must provide either country_name (for GeoBoundaries) or local_geojson (for custom boundaries).\n"
+            "Examples:\n"
+            "  - With GeoBoundaries: country_name='Afghanistan', admin_level='ADM1'\n"
+            "  - With custom boundaries: local_geojson='villages.geojson'"
         )
-    if admin_level not in ["ADM1", "ADM2"]:
-        raise ValueError(
-            f"Invalid admin_level: {admin_level}. Must be 'ADM1' or 'ADM2'."
+    
+    if local_geojson and not os.path.exists(local_geojson):
+        raise FileNotFoundError(
+            f"local_geojson not found: {local_geojson}\n"
+            f"Please check the file path and ensure the GeoJSON exists."
         )
+    
+    # Validate admin_level only if using GeoBoundaries
+    if country_name and not local_geojson:
+        if not admin_level:
+            admin_level = "ADM1"  # Default
+            logger.info("No admin_level specified, defaulting to ADM1")
+        # Accept any admin level string for flexibility
+        if not isinstance(admin_level, str) or not admin_level.strip():
+            raise ValueError("admin_level must be a non-empty string (e.g., 'ADM1', 'ADM2', 'ADM3')")
+    
     if fixed_thresholds is not None:
         if not isinstance(fixed_thresholds, (tuple, list)) or len(fixed_thresholds) != 3:
             raise ValueError(
@@ -308,9 +344,6 @@ def analyze_needs(
             )
         if not all(isinstance(t, (int, float)) for t in fixed_thresholds):
             raise ValueError("All threshold values must be numeric.")
-    if local_geojson and not os.path.exists(local_geojson):
-        logger.warning("local_geojson specified but file not found: %s. Will use remote boundaries.", local_geojson)
-        local_geojson = None
 
     try:
         df = pd.read_csv(dataset_path)
@@ -379,8 +412,30 @@ def analyze_needs(
     result_df["need_rank"] = result_df["cluster"].map(rank_map)
 
     # Fetch boundaries
-    iso3 = _country_to_iso3(country_name)
-    geojson = _fetch_admin1_geojson(iso3, admin_level=admin_level, local_path=local_geojson)
+    iso3 = None
+    if country_name:
+        try:
+            iso3 = _country_to_iso3(country_name)
+        except Exception as e:
+            if not local_geojson:
+                raise ValueError(
+                    f"Could not resolve country name '{country_name}' to ISO3 code: {e}\n"
+                    f"Check spelling or provide local_geojson instead."
+                )
+            logger.warning("Could not resolve country name, using local_geojson only: %s", e)
+    
+    if local_geojson:
+        # Use local boundaries directly
+        geojson = _fetch_admin1_geojson(
+            iso3 or "CUSTOM",
+            admin_level=admin_level or "CUSTOM",
+            local_path=local_geojson
+        )
+    elif iso3:
+        # Fetch from GeoBoundaries
+        geojson = _fetch_admin1_geojson(iso3, admin_level=admin_level or "ADM1")
+    else:
+        raise ValueError("Must provide either country_name or local_geojson")
 
     # Fuzzy name harmonization before merge when needed
     try:
@@ -552,18 +607,24 @@ def analyze_needs(
     if output_html_path is None:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
         os.makedirs(out_dir, exist_ok=True)
-        output_html_path = os.path.join(out_dir, f"needs_map_{iso3}.html")
+        # Use ISO3 if available, otherwise generic name
+        suffix = iso3 if iso3 else "custom"
+        output_html_path = os.path.join(out_dir, f"needs_map_{suffix}.html")
 
     m.save(output_html_path)
     try:
-        csv_out = os.path.join(os.path.dirname(output_html_path), f"needs_scores_{iso3}.csv")
+        # Generate CSV output path
+        suffix = iso3 if iso3 else "custom"
+        csv_out = os.path.join(os.path.dirname(output_html_path), f"needs_scores_{suffix}.csv")
         # compute level for each merged row using its score
         levels = []
         for _, row in merged.iterrows():
             val = float(row["need_score"]) if not pd.isna(row["need_score"]) else None
             lvl, _ = level_for(val)
             levels.append(lvl)
-        export_df = merged[["__norm_name", "need_score", "need_rank", "cluster"]].rename(columns={"__norm_name": "admin1"})
+        # Use generic column name that works for any level
+        geo_col_name = id_col if id_col else "geographic_unit"
+        export_df = merged[["__norm_name", "need_score", "need_rank", "cluster"]].rename(columns={"__norm_name": geo_col_name})
         export_df["need_level"] = levels
         export_df.to_csv(csv_out, index=False)
         logger.info("Exported scores to: %s", csv_out)
@@ -573,13 +634,29 @@ def analyze_needs(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze humanitarian needs and render a province map.")
-    parser.add_argument("dataset_path", help="Path to CSV with province-level indicators")
-    parser.add_argument("country_name", help="Country name, e.g., 'Afghanistan'")
+    parser = argparse.ArgumentParser(
+        description="Analyze humanitarian needs for any geographic level (provinces, districts, villages, etc.)"
+    )
+    parser.add_argument("dataset_path", help="Path to CSV with geographic units and indicators")
+    parser.add_argument("country_name", nargs="?", default=None, 
+                       help="Country name (e.g., 'Afghanistan'). Optional if using --geojson")
     parser.add_argument("--output", dest="output", default=None, help="Output HTML path")
+    parser.add_argument("--admin-level", dest="admin_level", default=None,
+                       help="Admin level (e.g., 'ADM1', 'ADM2', 'ADM3'). Used with country_name")
+    parser.add_argument("--admin-col", dest="admin_col", default=None,
+                       help="Name of geographic unit column in CSV")
+    parser.add_argument("--geojson", dest="geojson", default=None,
+                       help="Path to local GeoJSON boundaries file")
     args = parser.parse_args()
 
-    out = analyze_needs(args.dataset_path, args.country_name, args.output)
+    out = analyze_needs(
+        args.dataset_path,
+        args.country_name,
+        args.output,
+        admin_level=args.admin_level,
+        admin_col=args.admin_col,
+        local_geojson=args.geojson
+    )
     print(out)
 
 
