@@ -415,9 +415,9 @@ def analyze_needs(
         if val is None:
             return ("unknown", "#cccccc")
         if val >= q75:
-            return ("high", "#b91c1c")  # highest need
+            return ("highest", "#b91c1c")  # highest need
         elif val >= q50:
-            return ("medium", "#f87171")  # middle need
+            return ("high", "#f87171")  # middle need
         elif val >= q25:
             return ("low", "#86efac")  # low need
         else:
@@ -466,8 +466,8 @@ def analyze_needs(
         {% macro html(this, kwargs) %}
         <div style='position: fixed; bottom: 20px; left: 20px; z-index:9999; background: white; padding: 10px; border: 1px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.2); font-size: 12px;'>
           <div style='font-weight:600; margin-bottom:6px;'>Need Levels</div>
-          <div><span style='display:inline-block; width:14px; height:14px; background:#b91c1c; margin-right:6px; border:1px solid #999;'></span> high</div>
-          <div><span style='display:inline-block; width:14px; height:14px; background:#f87171; margin-right:6px; border:1px solid #999;'></span> medium</div>
+          <div><span style='display:inline-block; width:14px; height:14px; background:#b91c1c; margin-right:6px; border:1px solid #999;'></span> highest</div>
+          <div><span style='display:inline-block; width:14px; height:14px; background:#f87171; margin-right:6px; border:1px solid #999;'></span> high</div>
           <div><span style='display:inline-block; width:14px; height:14px; background:#86efac; margin-right:6px; border:1px solid #999;'></span> low</div>
           <div><span style='display:inline-block; width:14px; height:14px; background:#16a34a; margin-right:6px; border:1px solid #999;'></span> lowest</div>
         </div>
