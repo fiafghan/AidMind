@@ -262,22 +262,92 @@ def analyze_needs(
         Country name (e.g., "Afghanistan").
     output_html_path : Optional[str]
         Where to save the generated HTML. Defaults to AidMind/output/needs_map_<ISO3>.html
+    admin_level : str
+        Administrative level to use ("ADM1" or "ADM2"). Default: "ADM1".
+    admin_col : Optional[str]
+        Name of the admin column in your dataset. If None, auto-detects.
+    local_geojson : Optional[str]
+        Path to local GeoJSON file for boundaries (enables offline mode).
+    fixed_thresholds : Optional[Tuple[float, float, float]]
+        Fixed thresholds (q25, q50, q75) for color levels. If None, uses quartiles.
 
     Returns
     -------
     str
         The path to the generated HTML file.
-    """
-    if not os.path.exists(dataset_path):
-        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
-    df = pd.read_csv(dataset_path)
+    Raises
+    ------
+    FileNotFoundError
+        If dataset_path does not exist.
+    ValueError
+        If dataset is empty, has no numeric columns, or country name is invalid.
+    """
+    # Validate inputs
+    if not dataset_path:
+        raise ValueError("dataset_path cannot be empty.")
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(
+            f"Dataset not found: {dataset_path}\n"
+            f"Please check the file path and ensure the file exists."
+        )
+    if not country_name or not country_name.strip():
+        raise ValueError(
+            "country_name cannot be empty.\n"
+            "Example: 'Afghanistan', 'Kenya', 'Colombia'"
+        )
+    if admin_level not in ["ADM1", "ADM2"]:
+        raise ValueError(
+            f"Invalid admin_level: {admin_level}. Must be 'ADM1' or 'ADM2'."
+        )
+    if fixed_thresholds is not None:
+        if not isinstance(fixed_thresholds, (tuple, list)) or len(fixed_thresholds) != 3:
+            raise ValueError(
+                "fixed_thresholds must be a tuple/list of 3 floats (q25, q50, q75).\n"
+                "Example: (0.25, 0.50, 0.75)"
+            )
+        if not all(isinstance(t, (int, float)) for t in fixed_thresholds):
+            raise ValueError("All threshold values must be numeric.")
+    if local_geojson and not os.path.exists(local_geojson):
+        logger.warning("local_geojson specified but file not found: %s. Will use remote boundaries.", local_geojson)
+        local_geojson = None
+
+    try:
+        df = pd.read_csv(dataset_path)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to read CSV file: {dataset_path}\n"
+            f"Error: {e}\n"
+            f"Ensure the file is a valid CSV with proper encoding (UTF-8 recommended)."
+        )
+    
     if df.empty:
-        raise ValueError("Dataset is empty.")
+        raise ValueError(
+            f"Dataset is empty: {dataset_path}\n"
+            f"Please provide a CSV with at least one row of data."
+        )
+    
+    if len(df) < 3:
+        logger.warning(
+            "Dataset has only %d rows. Results may be unreliable with very small samples.",
+            len(df)
+        )
 
     id_col = admin_col or _detect_admin_column(df)
     if not id_col:
-        raise ValueError("Could not detect an admin-1 name column. Add a column like 'province' or 'admin1'.")
+        available_cols = ", ".join(df.columns.tolist())
+        raise ValueError(
+            "Could not detect an admin name column.\n"
+            f"Available columns: {available_cols}\n"
+            "Please specify admin_col parameter with your admin column name,\n"
+            "or rename a column to: 'province', 'admin1', 'region', 'state', etc."
+        )
+    
+    if id_col not in df.columns:
+        raise ValueError(
+            f"Specified admin_col '{id_col}' not found in dataset.\n"
+            f"Available columns: {', '.join(df.columns.tolist())}"
+        )
 
     logger.info("Detected admin column: %s", id_col)
     # Aggregate multiple rows per admin by stripping trailing numeric suffixes
