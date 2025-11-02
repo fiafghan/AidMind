@@ -1,0 +1,9 @@
+province,district,village,population,malnutrition_rate_pct,water_points,clinics,school_enrollment_pct
+Kabul,Kabul City,Shahr-e-Naw,12000,15,5,1,92
+Kabul,Khak-e Jabbar,Qala Now,4500,22,1,0,65
+Herat,Injil,Guzara,8000,18,2,1,70
+Herat,Shindand,Shindand Village,6000,28,1,0,55
+Kandahar,Dand,Dand Center,7000,25,2,1,60
+Balkh,Dehdadi,Dehdadi Kalay,5000,12,3,1,85
+Nangarhar,Surkhrod,Surkhrod Kalay,9000,20,2,1,68
+Badakhshan,Fayzabad,Argo,4000,30,1,0,50

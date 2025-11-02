@@ -201,18 +201,42 @@ def _cluster_and_rank(Xs: np.ndarray, need_scores: np.ndarray, max_clusters: int
 
 
 def _merge_with_geojson(df: pd.DataFrame, id_col: str, geojson: dict) -> Tuple[pd.DataFrame, dict, str, str]:
-    # Determine geo name property commonly found in geoBoundaries: 'shapeName'
-    # Build a mapping from normalized name -> feature id
+    # Determine which GeoJSON property holds the geographic name to join on.
     features = geojson.get("features", [])
-    prop_name_candidates = ["shapeName", "name", "NAME_1", "adm1_name"]
     gj_name_key = None
     if features:
+        first_props = features[0].get("properties", {})
+        # Start with common keys, then include the dataset's id_col and any 'name'-like keys present
+        base_candidates = ["shapeName", "name", "NAME_1", "adm1_name"]
+        dynamic_candidates = []
+        if id_col:
+            dynamic_candidates.extend([id_col, id_col.lower(), id_col.upper()])
+        # add any property keys that look like a name field
+        dynamic_candidates.extend([k for k in first_props.keys() if isinstance(k, str) and "name" in k.lower()])
+        prop_name_candidates = []
+        # keep order but avoid duplicates
+        for k in base_candidates + dynamic_candidates:
+            if k not in prop_name_candidates:
+                prop_name_candidates.append(k)
         for key in prop_name_candidates:
-            if key in features[0].get("properties", {}):
+            if key in first_props:
                 gj_name_key = key
                 break
-    if not gj_name_key:
-        raise RuntimeError("Could not find an admin-1 name property in GeoJSON.")
+        # As a last resort, pick any non-empty string property key
+        if not gj_name_key:
+            for k, v in first_props.items():
+                if isinstance(v, str) and v.strip():
+                    gj_name_key = k
+                    break
+        # If still not found, synthesize a name key so downstream logic can proceed
+        if not gj_name_key:
+            gj_name_key = id_col or "name"
+            for i, f in enumerate(features):
+                props = f.get("properties", {})
+                # Prefer existing id_col value; else fall back to shapeID or index
+                synth = props.get(id_col) if id_col and props.get(id_col) else props.get("shapeID") or str(i)
+                props[gj_name_key] = synth
+                f["properties"] = props
 
     # Normalize names in both datasets
     df = df.copy()
@@ -230,7 +254,7 @@ def _merge_with_geojson(df: pd.DataFrame, id_col: str, geojson: dict) -> Tuple[p
     merged = pd.merge(df, gj_df, on="__norm_name", how="left", suffixes=("", "_geo"))
 
     # Determine the best unique identifier in GeoJSON properties to bind data to features
-    # Prefer 'shapeID' if present; else fall back to index
+    # Prefer 'shapeID' if present; else fall back to normalized name
     bind_key = "shapeID" if "shapeID" in gj_df.columns else "__norm_name"
 
     # Build a lookup from feature bind_key -> feature index for folium

@@ -1,0 +1,9 @@
+province,population,food_insecurity_pct,water_access_pct,health_facilities_per_100k,idps
+Kabul,5000000,22,85,12,20000
+Herat,2000000,35,60,8,50000
+Kandahar,1500000,40,55,6,30000
+Balkh,1800000,28,70,9,10000
+Nangarhar,1700000,33,62,7,45000
+Badakhshan,1000000,45,48,5,15000
+Helmand,1200000,50,40,4,60000
+Bamyan,500000,25,75,10,5000

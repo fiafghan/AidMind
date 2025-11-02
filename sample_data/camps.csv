@@ -1,0 +1,9 @@
+camp_name,province,population,shelter_condition_score,water_access_pct,latrine_to_person_ratio,health_posts,school_tents
+Camp 1,Kabul,15000,2,55,"1:200",1,2
+Camp 2,Herat,22000,3,60,"1:180",2,3
+Camp 3,Kandahar,18000,1,45,"1:250",1,1
+Camp 4,Balkh,12000,2,58,"1:190",1,2
+Camp 5,Nangarhar,26000,1,40,"1:300",1,1
+Camp 6,Badakhshan,8000,3,65,"1:150",1,1
+Camp 7,Helmand,20000,1,38,"1:320",1,1
+Camp 8,Bamyan,6000,4,75,"1:120",2,2
