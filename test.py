@@ -1,11 +1,11 @@
-from aidmind import analyze_needs
+# Works with refugee camps, neighborhoods, health zones, etc.
 
-out_html = analyze_needs(
-    dataset_path="afghanistan_needs_sample.csv",
-    country_name="Afghanistan",
-    admin_level="ADM1",         # province-level boundaries
-    admin_col=None,             # auto-detects 'province'
-    local_geojson=None,         # or path to a local GeoJSON
-    output_html_path="output/afghanistan_needs_sample.html",
+import html
+from aidmind import analyze_needs
+analyze_needs(
+    "afghanistan_needs_sample.csv",
+    local_geojson="refugees.geojson",
+    admin_col="camp_name",
+    fixed_thresholds=(0.25, 0.50, 0.75),  # Optional: fixed thresholds
+    output_html_path="output/needs_map_custom.html"
 )
-print("Map saved to:", out_html)
