@@ -14,7 +14,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="aidmind",
-    version="1.0.0",
+    version="1.0.1",
     author="AidMind Team",
     author_email="support@aidmind.org",
     description="Unsupervised machine learning for humanitarian needs assessment and visualization",
